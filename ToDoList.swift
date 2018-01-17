@@ -9,29 +9,37 @@
 import UIKit
 import CloudKit
 
+struct ToDoItem {
+    var recordName: String
+    var todoText: String
+    var createDate: Date
+    var updateDate: Date
+    var Status: Int
+}
 
 class ToDoList: NSObject {
  
-    private var items:[String] = []
+    var items:[ToDoItem] = []
     let container: CKContainer = CKContainer.default()
     let formatter = DateFormatter()
     
     
     func add(_ todo: String) {
-        self.formatter.dateFormat = "MM/dd"
         let date = Date()
-        let item = self.formatter.string(from: date) + " " + todo
-        items.append(item)
-    
-        saveItem(todo, date)
+        let recordName = UUID().uuidString
+        let todoItem = ToDoItem(recordName: recordName, todoText: todo, createDate: date, updateDate: date, Status: 0)
+        
+        items.append(todoItem)
+        saveItem(todoText: todo, createDate: date, recordName: recordName)
     }
     
-    func saveItem(_ todo: String, _ date: Date) {
+    func saveItem(todoText: String, createDate: Date, recordName: String) {
         print("Saving to Cloud Container")
         
-        let record = CKRecord(recordType: "ToDoRecord")
-        record["ToDo"] = todo as CKRecordValue
-        record["CreateDate"] = date as CKRecordValue
+        let record = CKRecord(recordType: "ToDoRecord", recordID: CKRecordID(recordName: recordName))
+        
+        record["ToDo"] = todoText as CKRecordValue
+        record["CreateDate"] = createDate as CKRecordValue
         record["Status"] = 0 as CKRecordValue
         
         let privateDB = container.privateCloudDatabase
@@ -42,9 +50,24 @@ class ToDoList: NSObject {
             }
             print("Successfully saved record: ", record)
         }
-        
     }
     
+    func deleteItem(_ recordName: String) {
+        print ("Deleting Record \(recordName)")
+        
+        let privateDB = container.privateCloudDatabase
+        let recordID = CKRecordID(recordName: recordName)
+        privateDB.delete(withRecordID: recordID) { (recordID, error) -> Void in
+            guard error == nil else {
+                DispatchQueue.main.async {
+                    print("Cloud Query Error - Refresh: \(error!)")
+                }
+                return
+            }
+        }
+        
+        items = items.filter {$0.recordName != recordName}
+    }
     
     func loadItems() {
         print ("Loading items")
@@ -74,10 +97,11 @@ class ToDoList: NSObject {
 
         for record in queryResults {
             let todo = record.object(forKey: "ToDo") as! String
-            let createDate = record.object(forKey: "CreateDate") as! Date
+            let date = record.object(forKey: "CreateDate") as! Date
             self.formatter.dateFormat = "MM/dd"
-            let item = self.formatter.string(from:createDate) + " " + todo
-            self.items.append(item)
+  
+            let todoItem = ToDoItem(recordName:record.recordID.recordName, todoText: todo, createDate: date, updateDate: date, Status: 0)
+            self.items.append(todoItem)
         }
         
     }
@@ -86,20 +110,5 @@ class ToDoList: NSObject {
         super.init()
         loadItems()
     }
-
 }
 
-extension ToDoList: UITableViewDataSource {
-    
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return items.count
-    }
-    
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-        let item = items[indexPath.row]
-        cell.textLabel!.text = item
-        
-        return cell
-    }
-}
